@@ -6,7 +6,7 @@ struct Compiler {
     // The next character we're going to consider.
     lookahead: Option<char>,
 
-    // Our input stream of bytes.
+    // Our input stream of bytes. Cursor is so dope.
     input_stream: Cursor<Vec<u8>>,
 }
 
@@ -31,7 +31,13 @@ impl Compiler {
 
         // Convert the byte into an ASCII character.
         self.lookahead = Some(char::from(byte));
-        self.lookahead
+
+        // Ignore newlines for now.
+        if char::from(byte) == '\n' {
+            self.get_char()
+        } else {
+            self.lookahead
+        }
     }
 
     /// Prints an error message.
@@ -46,22 +52,25 @@ impl Compiler {
     }
 
     /// Prints an error message prefixed with "expected" and exits.
-    fn expected(&self, what: &str) {
-        self.abort(&format!("expected {}", what));
+    fn expected(&self, what: &str, found: &str) {
+        self.abort(&format!("expected {}, found {}", what, found));
     }
 
     /// If the current lookahead is not equal to the matching character,
-    /// prints an error and exits. Otherwise, consumes another byte from
-    /// the input stream.
-    fn match_char(&mut self, c: char) {
+    /// prints an error and exits. Otherwise, consumes another character from
+    /// the input stream, puts it in the lookahead, and returns it.
+    fn consume_exact_char(&mut self, c: char) -> Option<char> {
         if let Some(lookahead) = self.lookahead {
             if lookahead == c {
                 self.get_char();
+                Some(lookahead)
             } else {
-                self.expected(&format!("{}", c));
+                self.expected(&c.to_string(), &lookahead.to_string());
+                None
             }
         } else {
-            self.expected(&format!("{}", c));
+            self.expected(&c.to_string(), "nothing");
+            None
         }
     }
 
@@ -71,29 +80,29 @@ impl Compiler {
                 self.get_char();
                 Some(lookahead.to_ascii_uppercase())
             } else {
-                self.expected("name");
+                self.expected("name", &lookahead.to_string());
                 None
             }
         } else {
-            self.expected("name");
+            self.expected("name", "nothing");
             None
         }
     }
 
     /// If the current lookahead is not a digit, prints an error and exits.
-    /// Otherwise, consumes another byte from the input stream and returns the
-    /// matched digit.
-    fn get_num(&mut self) -> Option<char> {
+    /// Otherwise, consumes another byte from the input stream, puts it in the
+    /// lookahead, and returns it.
+    fn consume_num(&mut self) -> Option<char> {
         if let Some(lookahead) = self.lookahead {
             if lookahead.is_digit(10) {
                 self.get_char();
                 Some(lookahead)
             } else {
-                self.expected("integer");
+                self.expected("integer", &lookahead.to_string());
                 None
             }
         } else {
-            self.expected("integer");
+            self.expected("integer", "nothing");
             None
         }
     }
@@ -118,46 +127,110 @@ impl Compiler {
         println!(")");
         println!("(export \"main\" (func $main))");
     }
-
-    fn term(&mut self) {
-        // A term is simply a number.
-        let num = self.get_num().unwrap();
-        println!("(i32.const {})", num);
-    }
-
-    fn expression(&mut self) {
-        // An expression is a term, followed by an addop, followed by
-        // another term.
-        self.term();
-
+    
+    /// <expression> ::= <leading> <term> <addop>
+    /// <leading> ::= "+" | "-" | ""
+    /// <addop> ::= <add-expression> | <subtract-expression>
+    fn parse_expression(&mut self) {
+        
         if let Some(c) = self.lookahead {
             if c == '+' {
-                self.add();
+                self.consume_exact_char('+');
+                self.parse_term();
             } else if c == '-' {
-                self.subtract();
+                println!("(i32.const 0)");
             } else {
-                self.expected("addop");
+                self.parse_term();
             }
         } else {
-            self.expected("addop");
+            self.expected("term or addop", "nothing");
+        }
+
+        loop {
+            if let Some(c) = self.lookahead {
+                if c == '+' {
+                    self.parse_add();
+                } else if c == '-' {
+                    self.parse_subtract();
+                } else {
+                    break;
+                }
+            } else {
+                self.expected("addop", "nothing");
+            }
+        }
+    }
+    
+    /// <term> ::= <factor> <multop>
+    /// <multop> ::= <multiply-expression> | <divide-expression>
+    fn parse_term(&mut self) {
+        self.parse_factor();
+        loop {
+            if let Some(c) = self.lookahead {
+                if c == '*' {
+                    self.parse_multiply();
+                } else if c == '/' {
+                    self.parse_divide();
+                } else {
+                    break;
+                }
+            } else {
+                self.expected("multop", "nothing");
+            }
         }
     }
 
-    fn add(&mut self) {
+    /// <factor> ::= "(" <expression> ")" | <number>
+    fn parse_factor(&mut self) {
+        if let Some(c) = self.lookahead {
+            if c == '(' {
+                self.consume_exact_char('(');
+                self.parse_expression();
+                self.consume_exact_char(')');
+            } else {
+                let num = self.consume_num().unwrap();
+                println!("(i32.const {})", num);
+            }
+        } else {
+            self.expected("expression", "nothing");
+        }
+    }
+
+    /// <add-expression> ::= <empty> | <plus-term>
+    /// <plus-term> ::= "+" <term>
+    fn parse_add(&mut self) {
         // Consume a '+' character from the stream.
-        self.match_char('+');
+        self.consume_exact_char('+');
         
         // Call term() again to consume one more term.
-        self.term();
+        self.parse_term();
         
         // Add the two terms on the stack.
         println!("(i32.add)");
     }
 
-    fn subtract(&mut self) {
-        self.match_char('-');
-        self.term();
+    /// <subtract-expression> ::= <empty> | <minus-term>
+    /// <minus-term> ::= "-" <term>
+    fn parse_subtract(&mut self) {
+        self.consume_exact_char('-');
+        self.parse_term();
         println!("(i32.sub)");
+    }
+
+    /// <multiply-expression> ::= <empty> | <multiply-factor>
+    /// <multiply-factor> ::= "*" <factor>
+    fn parse_multiply(&mut self) {
+        self.consume_exact_char('*');
+        self.parse_factor();
+        println!("(i32.mul)");
+    }
+
+    /// <divide-expression> ::= <empty> | <divide-factor>
+    /// <divide-factor> ::= "/" <factor>
+    fn parse_divide(&mut self) {
+        self.consume_exact_char('/');
+        self.parse_factor();
+        println!("(i32.div_s)");
     }
 }
 
@@ -172,7 +245,7 @@ fn main() {
     c.get_char();
     c.emit_module_start();
     c.emit_main_start();
-    c.expression();
+    c.parse_expression();
     c.emit_main_end();
     c.emit_module_end();
 }
