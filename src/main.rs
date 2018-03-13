@@ -8,9 +8,6 @@ struct Compiler {
 
     // Our input stream of bytes. Cursor is so dope.
     input_stream: Cursor<Vec<u8>>,
-
-    // Keeps track of our locals.
-    locals_stack: Vec<char>,
 }
 
 impl Compiler {
@@ -18,7 +15,6 @@ impl Compiler {
         Compiler {
             lookahead: None,
             input_stream: Cursor::new(program),
-            locals_stack: Vec::new(),
         }
     }
 
@@ -58,20 +54,6 @@ impl Compiler {
     /// Prints an error message prefixed with "expected" and exits.
     fn expected(&self, what: &str, found: &str) {
         self.abort(&format!("expected {}, found {}", what, found));
-    }
-
-    fn push_local(&mut self, c: char) -> usize {
-        let len = self.locals_stack.len();
-        println!("(local ${} i32)", len);
-        self.locals_stack.push(c);
-        len
-    }
-
-    fn get_local_index(&self, c: char) -> usize {
-        let index = self.locals_stack.iter().position(|&local| local == c);
-        
-        // TODO: this currently returns a 0 if a local isn't found.
-        index.unwrap_or(0)
     }
 
     /// If the current lookahead is not equal to the matching character,
@@ -151,12 +133,12 @@ impl Compiler {
         let name = self.consume_name();
 
         if let Some(name) = name {
-            let local_index = self.push_local(name);
+            println!("(local ${} i32)", name);
             self.consume_exact_char('=');
-            println!("(set_local ${}", local_index);
+            println!("(set_local ${}", name);
             self.parse_expression();
             println!(")");
-            println!("(get_local ${})", local_index);
+            println!("(get_local ${})", name);
         } else {
             self.expected("identifier", "nothing");
         }
@@ -233,14 +215,14 @@ impl Compiler {
     }
 
     fn parse_identifier(&mut self) {
-        let name = self.consume_name();
+        let name = self.consume_name().unwrap();
         if let Some(c) = self.lookahead {
             if c == '(' {
                 self.consume_exact_char('(');
                 self.consume_exact_char(')');
-                println!("(call ${})", name.unwrap());
+                println!("(call ${})", name);
             } else {
-                println!("(get_local ${})", self.get_local_index(c));
+                println!("(get_local ${})", name);
             }
         }
     }
