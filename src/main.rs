@@ -74,19 +74,23 @@ impl Compiler {
         }
     }
 
-    fn consume_name(&mut self) -> Option<char> {
-        if let Some(lookahead) = self.lookahead {
-            if lookahead.is_ascii_alphanumeric() {
-                self.get_char();
-                Some(lookahead)
+    fn consume_name(&mut self) -> Option<String> {
+        let mut name = String::from("");
+        
+        loop {
+            if let Some(lookahead) = self.lookahead {
+                if lookahead.is_ascii_alphanumeric() {
+                    name.push(lookahead);
+                    self.get_char();
+                } else {
+                    break;
+                }
             } else {
-                self.expected("name", &lookahead.to_string());
-                None
+                self.expected("name", "nothing");
             }
-        } else {
-            self.expected("name", "nothing");
-            None
         }
+
+        Some(name)
     }
 
     /// If the current lookahead is not a digit, prints an error and exits.
