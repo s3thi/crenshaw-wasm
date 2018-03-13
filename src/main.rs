@@ -109,20 +109,24 @@ impl Compiler {
     /// If the current lookahead is not a digit, prints an error and exits.
     /// Otherwise, consumes another byte from the input stream, puts it in the
     /// lookahead, and returns it.
-    fn consume_num(&mut self) -> Option<char> {
-        if let Some(lookahead) = self.lookahead {
-            if lookahead.is_digit(10) {
-                self.get_char();
-                self.skip_whitespace();
-                Some(lookahead)
+    fn consume_num(&mut self) -> Option<String> {
+        let mut num = String::from("");
+        
+        loop {
+            if let Some(lookahead) = self.lookahead {
+                if lookahead.is_digit(10) {
+                    num.push(lookahead);
+                    self.get_char();
+                } else {
+                    break;
+                }
             } else {
-                self.expected("integer", &lookahead.to_string());
-                None
+                self.expected("integer", "nothing");
             }
-        } else {
-            self.expected("integer", "nothing");
-            None
         }
+
+        self.skip_whitespace();
+        Some(num)
     }
     
     /// Prints the start of a new WebAssembly module.
