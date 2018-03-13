@@ -124,6 +124,7 @@ impl Compiler {
 
     /// Prints the closing paren and export statement of the main function.
     fn emit_main_end(&self) {
+        println!("(return)");
         println!(")");
         println!("(export \"main\" (func $main))");
     }
