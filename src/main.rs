@@ -8,6 +8,9 @@ struct Compiler {
 
     // Our input stream of bytes. Cursor is so dope.
     input_stream: Cursor<Vec<u8>>,
+
+    // Keeps track of our locals.
+    locals_stack: Vec<char>,
 }
 
 impl Compiler {
@@ -15,6 +18,7 @@ impl Compiler {
         Compiler {
             lookahead: None,
             input_stream: Cursor::new(program),
+            locals_stack: Vec::new(),
         }
     }
 
@@ -56,6 +60,20 @@ impl Compiler {
         self.abort(&format!("expected {}, found {}", what, found));
     }
 
+    fn push_local(&mut self, c: char) -> usize {
+        let len = self.locals_stack.len();
+        println!("(local ${} i32)", len);
+        self.locals_stack.push(c);
+        len
+    }
+
+    fn get_local_index(&self, c: char) -> usize {
+        let index = self.locals_stack.iter().position(|&local| local == c);
+        
+        // TODO: this currently returns a 0 if a local isn't found.
+        index.unwrap_or(0)
+    }
+
     /// If the current lookahead is not equal to the matching character,
     /// prints an error and exits. Otherwise, consumes another character from
     /// the input stream, puts it in the lookahead, and returns it.
@@ -74,11 +92,11 @@ impl Compiler {
         }
     }
 
-    fn get_name(&mut self) -> Option<char> {
+    fn consume_name(&mut self) -> Option<char> {
         if let Some(lookahead) = self.lookahead {
             if lookahead.is_ascii_alphanumeric() {
                 self.get_char();
-                Some(lookahead.to_ascii_uppercase())
+                Some(lookahead)
             } else {
                 self.expected("name", &lookahead.to_string());
                 None
@@ -127,6 +145,21 @@ impl Compiler {
         println!("(return)");
         println!(")");
         println!("(export \"main\" (func $main))");
+    }
+
+    fn parse_assignment(&mut self) {
+        let name = self.consume_name();
+
+        if let Some(name) = name {
+            let local_index = self.push_local(name);
+            self.consume_exact_char('=');
+            println!("(set_local ${}", local_index);
+            self.parse_expression();
+            println!(")");
+            println!("(get_local ${})", local_index);
+        } else {
+            self.expected("identifier", "nothing");
+        }
     }
     
     /// <expression> ::= <leading> <term> <addop>
@@ -188,12 +221,27 @@ impl Compiler {
                 self.consume_exact_char('(');
                 self.parse_expression();
                 self.consume_exact_char(')');
+            } else if c.is_ascii_alphabetic() {
+                self.parse_identifier();
             } else {
                 let num = self.consume_num().unwrap();
                 println!("(i32.const {})", num);
             }
         } else {
             self.expected("expression", "nothing");
+        }
+    }
+
+    fn parse_identifier(&mut self) {
+        let name = self.consume_name();
+        if let Some(c) = self.lookahead {
+            if c == '(' {
+                self.consume_exact_char('(');
+                self.consume_exact_char(')');
+                println!("(call ${})", name.unwrap());
+            } else {
+                println!("(get_local ${})", self.get_local_index(c));
+            }
         }
     }
 
@@ -242,11 +290,20 @@ fn main() {
     let mut program = Vec::new();
     io::stdin().read_to_end(&mut program).expect("could not read from stdin");
     
-    let mut c = Compiler::new(program);
-    c.get_char();
-    c.emit_module_start();
-    c.emit_main_start();
-    c.parse_expression();
-    c.emit_main_end();
-    c.emit_module_end();
+    let mut compiler = Compiler::new(program);
+    compiler.get_char();
+    compiler.emit_module_start();
+    compiler.emit_main_start();
+    compiler.parse_assignment();
+    
+    if let Some(c) = compiler.lookahead {
+        if c != '\n' {
+            compiler.expected("newline", &c.to_string());
+        }
+    } else {
+        compiler.expected("newline", "nothing");
+    }
+    
+    compiler.emit_main_end();
+    compiler.emit_module_end();
 }
