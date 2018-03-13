@@ -26,17 +26,28 @@ impl Compiler {
         let result = self.input_stream.read_exact(&mut buf).ok();
         let byte = match result {
             Some(_) => buf[0],
-            None => return None
+            None => {
+                self.lookahead = None;
+                return None;
+            }
         };
 
         // Convert the byte into an ASCII character.
         self.lookahead = Some(char::from(byte));
+        self.lookahead
+    }
 
-        // Ignore newlines for now.
-        if char::from(byte) == '\n' {
-            self.get_char()
+    fn skip_whitespace(&mut self) {
+        loop {
+            if let Some(lookahead) = self.lookahead {
+                if lookahead == ' ' {
+                    self.get_char();
+                } else {
+                    break;
+                }
         } else {
-            self.lookahead
+                break;
+            }
         }
     }
 
@@ -63,6 +74,7 @@ impl Compiler {
         if let Some(lookahead) = self.lookahead {
             if lookahead == c {
                 self.get_char();
+                self.skip_whitespace();
                 Some(lookahead)
             } else {
                 self.expected(&c.to_string(), &lookahead.to_string());
@@ -90,6 +102,7 @@ impl Compiler {
             }
         }
 
+        self.skip_whitespace();
         Some(name)
     }
 
@@ -100,6 +113,7 @@ impl Compiler {
         if let Some(lookahead) = self.lookahead {
             if lookahead.is_digit(10) {
                 self.get_char();
+                self.skip_whitespace();
                 Some(lookahead)
             } else {
                 self.expected("integer", &lookahead.to_string());
@@ -278,6 +292,7 @@ fn main() {
     
     let mut compiler = Compiler::new(program);
     compiler.get_char();
+    compiler.skip_whitespace();
     compiler.emit_module_start();
     compiler.emit_main_start();
     compiler.parse_assignment();
