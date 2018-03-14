@@ -18,6 +18,29 @@ impl Compiler {
         }
     }
 
+    fn init(&mut self) {
+        self.get_char();
+        self.skip_whitespace();
+    }
+
+    fn emit(&mut self) {
+        self.init();
+        self.emit_module_start();
+        self.emit_main_start();
+        self.parse_assignment();
+        
+        if let Some(c) = self.lookahead {
+            if c != '\n' {
+                self.expected("newline", &c.to_string());
+            }
+        } else {
+            self.expected("newline", "nothing");
+        }
+        
+        self.emit_main_end();
+        self.emit_module_end();
+    }
+
     /// Consumes the next byte in the stream, converts it to a character,
     /// stores it in the lookahead, and returns the character.
     fn get_char(&mut self) -> Option<char> {
@@ -295,20 +318,5 @@ fn main() {
     io::stdin().read_to_end(&mut program).expect("could not read from stdin");
     
     let mut compiler = Compiler::new(program);
-    compiler.get_char();
-    compiler.skip_whitespace();
-    compiler.emit_module_start();
-    compiler.emit_main_start();
-    compiler.parse_assignment();
-    
-    if let Some(c) = compiler.lookahead {
-        if c != '\n' {
-            compiler.expected("newline", &c.to_string());
-        }
-    } else {
-        compiler.expected("newline", "nothing");
-    }
-    
-    compiler.emit_main_end();
-    compiler.emit_module_end();
+    compiler.emit();
 }
