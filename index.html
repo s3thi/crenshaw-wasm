@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+
+<html lang="en">
+  <head>
+    <script>
+      fetch('out.wasm')
+        .then(response => response.arrayBuffer())
+        .then(bytes => WebAssembly.instantiate(bytes, {}))
+        .then(wasm => {
+          console.log(wasm.instance.exports.main());
+        });
+    </script>
+  </head>
+</html>
