@@ -1,6 +1,7 @@
 use std::io;
 use std::io::{Read, Cursor};
 use std::process;
+use std::collections::HashMap;
 
 struct Compiler {
     // The next character we're going to consider.
@@ -8,6 +9,9 @@ struct Compiler {
 
     // Our input stream of bytes. Cursor is so dope.
     input_stream: Cursor<Vec<u8>>,
+
+    // Our variables.
+    bindings: HashMap<String, i32>,
 }
 
 impl Compiler {
@@ -15,29 +19,35 @@ impl Compiler {
         Compiler {
             lookahead: None,
             input_stream: Cursor::new(program),
+            bindings: HashMap::new(),
         }
     }
 
+    /// Initializes the compiler by reading a single character into the
+    /// lookahead, and skipping any whitespace.
     fn init(&mut self) {
         self.get_char();
         self.skip_whitespace();
     }
 
+    /// Runs the compiler.
     fn emit(&mut self) {
         self.init();
-        self.emit_module_start();
-        self.emit_main_start();
-        
-        if let Some(c) = self.lookahead {
-            if c != '\n' {
-                self.expected("newline", &c.to_string());
+
+        loop {
+            self.parse_assignment();
+            self.consume_newline();
+
+            if self.lookahead.expect("must end program with a single . on a new line") == '.' {
+                break;
             }
-        } else {
-            self.expected("newline", "nothing");
         }
-        
-        self.emit_main_end();
-        self.emit_module_end();
+    }
+
+    fn consume_newline(&mut self) {
+        if self.lookahead.expect("expected a newline") == '\n' {
+            self.get_char();
+        }
     }
 
     /// Consumes the next byte in the stream, converts it to a character,
@@ -59,15 +69,13 @@ impl Compiler {
         self.lookahead
     }
 
+    /// Consumes spaces until a non-space character is found.
     fn skip_whitespace(&mut self) {
         loop {
-            if let Some(lookahead) = self.lookahead {
-                if lookahead == ' ' {
-                    self.get_char();
-                } else {
-                    break;
-                }
-        } else {
+            let lookahead = self.lookahead.expect("expected whitespace");
+            if lookahead == ' ' {
+                self.get_char();
+            } else {
                 break;
             }
         }
@@ -85,92 +93,149 @@ impl Compiler {
     }
 
     /// Prints an error message prefixed with "expected" and exits.
-    fn expected(&self, what: &str, found: &str) {
-        self.abort(&format!("expected {}, found {}", what, found));
+    fn expected(&self, what: &str) {
+        self.abort(&format!("expected {}", what));
     }
 
     /// If the current lookahead is not equal to the matching character,
     /// prints an error and exits. Otherwise, consumes another character from
     /// the input stream, puts it in the lookahead, and returns it.
     fn consume_exact_char(&mut self, c: char) -> Option<char> {
-        if let Some(lookahead) = self.lookahead {
-            if lookahead == c {
-                self.get_char();
-                self.skip_whitespace();
-                Some(lookahead)
-            } else {
-                self.expected(&c.to_string(), &lookahead.to_string());
-                None
-            }
+        let lookahead = self.lookahead.expect(&format!("expected {}", c));
+        if lookahead == c {
+            self.get_char();
+            self.skip_whitespace();
+            Some(lookahead)
         } else {
-            self.expected(&c.to_string(), "nothing");
+            self.expected(&c.to_string());
             None
         }
     }
 
-    fn consume_name(&mut self) -> Option<String> {
+    fn consume_name(&mut self) -> String {
         let mut name = String::from("");
         
         loop {
-            if let Some(lookahead) = self.lookahead {
-                if lookahead.is_ascii_alphanumeric() {
-                    name.push(lookahead);
-                    self.get_char();
-                } else {
-                    break;
-                }
+            let lookahead = self.lookahead.expect("expected ascii character");
+            if lookahead.is_ascii_alphanumeric() {
+                name.push(lookahead);
+                self.get_char();
             } else {
-                self.expected("name", "nothing");
+                break;
             }
         }
 
         self.skip_whitespace();
-        Some(name)
+        name
     }
 
     /// If the current lookahead is not a digit, prints an error and exits.
     /// Otherwise, consumes another byte from the input stream, puts it in the
     /// lookahead, and returns it.
-    fn consume_num(&mut self) -> Option<String> {
+    fn consume_num(&mut self) -> Option<i32> {
         let mut num = String::from("");
         
         loop {
-            if let Some(lookahead) = self.lookahead {
-                if lookahead.is_digit(10) {
-                    num.push(lookahead);
-                    self.get_char();
-                } else {
-                    break;
-                }
+            let lookahead = self.lookahead.expect("expected number");
+            if lookahead.is_digit(10) {
+                num.push(lookahead);
+                self.get_char();
             } else {
-                self.expected("integer", "nothing");
+                break;
             }
         }
 
         self.skip_whitespace();
-        Some(num)
+
+        match num.parse::<i32>() {
+            Ok(n) => Some(n - 0),
+            Err(_) => None
+        }
+    }
+
+    fn parse_assignment(&mut self) -> String {
+        let name = self.consume_name();
+        self.consume_exact_char('=');
+        let expression_value = self.parse_expression();
+        self.bindings.insert(name.clone(), expression_value);
+        name
+    }
+
+    fn parse_factor(&mut self) -> i32 {
+        let lookahead = self.lookahead.expect("expected factor");
+        let value;
+
+        if lookahead == '(' {
+            self.consume_exact_char('(');
+            value = self.parse_expression();
+            self.consume_exact_char(')');
+        } else if lookahead.is_ascii_alphabetic() {
+            let name = self.consume_name();
+            value = *(self.bindings.get(&name).expect("could not find binding"));
+        } else {
+            value = self.consume_num().expect("expecter number while parsing factor");
+        }
+
+        value
+    }
+
+    fn parse_term(&mut self) -> i32 {
+        let mut value = self.parse_factor();
+
+        loop {
+            let lookahead = self.lookahead.expect("found nothing while parsing term");
+
+            if lookahead == '*' || lookahead == '/' {
+                match lookahead {
+                    '*' => {
+                        self.consume_exact_char('*');
+                        value = value * self.parse_factor();
+                    },
+                    '/' => {
+                        self.consume_exact_char('/');
+                        value = value / self.parse_factor();
+                    },
+                    _ => break
+                }
+            } else {
+                break;
+            }
+        }
+
+        value
     }
     
-    /// Prints the start of a new WebAssembly module.
-    fn emit_module_start(&self) {
-        println!("(module");
-    }
+    fn parse_expression(&mut self) -> i32 {
+        let mut value;
+        
+        let lookahead = self.lookahead.expect("found nothing while parsing start of expression");
+        if lookahead == '+' || lookahead == '-' {
+            value = 0;
+        } else {
+            value = self.parse_term();
+        }
 
-    /// Prints the closing paren of a WebAssembly module.
-    fn emit_module_end(&self) {
-        println!(")");
-    }
+        loop {
+            self.skip_whitespace();
+            let lookahead = self.lookahead.expect("found nothing while parsing expression");
+            if lookahead == '+' || lookahead == '-' {
+                match lookahead {
+                    '+' => {
+                        self.consume_exact_char('+');
+                        value = value + self.parse_term();
+                    },
+                    '-' => {
+                       self.consume_exact_char('-');
+                       value = value - self.parse_term();
+                    },
+                    _ => break
+                }
+            } else {
+                break;
+            }
+        }
 
-    /// Prints the start of a function called main.
-    fn emit_main_start(&self) {
-        println!("(func $main (result i32)");
-    }
-
-    /// Prints the closing paren and export statement of the main function.
-    fn emit_main_end(&self) {
-        println!("(return)");
-        println!(")");
-        println!("(export \"main\" (func $main))");
+        value
     }
 }
 
