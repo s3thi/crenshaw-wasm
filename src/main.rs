@@ -35,7 +35,15 @@ impl Compiler {
         self.init();
 
         loop {
-            self.parse_assignment();
+            let lookahead = self.lookahead.expect("found nothing while starting parse");
+            if lookahead == '!' {
+                self.parse_output();
+            } else if lookahead == '?' {
+                self.parse_input();
+            } else {
+                self.parse_assignment();
+            }
+            
             self.consume_newline();
 
             if self.lookahead.expect("must end program with a single . on a new line") == '.' {
@@ -159,6 +167,23 @@ impl Compiler {
         let expression_value = self.parse_expression();
         self.bindings.insert(name.clone(), expression_value);
         name
+    }
+
+    fn parse_output(&mut self) {
+        self.consume_exact_char('!');
+        let name = self.consume_name();
+        println!("{}", self.bindings.get(&name).expect("binding not found"));
+    }
+
+    fn parse_input(&mut self) {
+        self.consume_exact_char('?');
+        let name = self.consume_name();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).ok().expect("could not read line");
+        input.pop();
+        let num = input.parse::<i32>().ok().expect(&format!("expected number, found {}", input));
+        self.bindings.insert(name, num);
     }
 
     fn parse_factor(&mut self) -> i32 {
