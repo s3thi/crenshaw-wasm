@@ -27,6 +27,7 @@ impl Compiler {
         self.init();
         self.emit_module_start();
         self.emit_main_start();
+        self.parse_program();
         
         if let Some(c) = self.lookahead {
             if c != '\n' {
@@ -171,6 +172,35 @@ impl Compiler {
         println!("(return)");
         println!(")");
         println!("(export \"main\" (func $main))");
+    }
+
+    fn parse_other(&mut self) {
+        let name = self.lookahead.expect("expected name while parsing other");
+        println!("(local ${} i32)", name);
+        self.consume_char();
+    }
+
+    fn parse_program(&mut self) {
+        self.parse_block();
+        let lookahead = self.lookahead.expect("unexpected end of input while parsing program");
+
+        if lookahead != 'e' {
+            panic!("expected \"e\" at the end of program");
+        } else {
+            self.consume_char();
+        }
+    }
+
+    fn parse_block(&mut self) {
+        loop {
+            let lookahead = self.lookahead.expect("unexpected end of input while parsing block");
+
+            if lookahead != 'e' {
+                self.parse_other();
+            } else {
+                break;
+            }
+        }
     }
 }
 
