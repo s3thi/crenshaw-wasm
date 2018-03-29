@@ -195,12 +195,70 @@ impl Compiler {
         loop {
             let lookahead = self.lookahead.expect("unexpected end of input while parsing block");
 
-            if lookahead != 'e' {
-                self.parse_other();
-            } else {
+            if lookahead == 'e' || lookahead == 'l' || lookahead == 'u' {
                 break;
+            } else if lookahead == 'i' {
+                self.parse_if();
+            } else if lookahead == 'w' {
+                self.parse_while();
+            } else if lookahead =='p' {
+                self.parse_loop();
+            } else if lookahead == 'r' {
+                self.parse_repeat();
+            } else {
+                self.parse_other();
             }
         }
+    }
+
+    fn parse_if(&mut self) {
+        self.consume_exact_char('i');
+        println!("(if ");
+        self.parse_condition();
+        self.parse_block();
+        
+        let lookahead = self.lookahead.expect("expecting else or end clause while parsing conditional");
+        if lookahead == 'l' {
+            self.consume_exact_char('l');
+            println!("(else");
+            self.parse_block();
+            println!(")");
+        }
+        
+        self.consume_exact_char('e');
+        println!(")");
+    }
+
+    fn parse_condition(&mut self) {
+        let lookahead = self.lookahead.expect("expected condition");
+        println!("(${})", lookahead);
+        self.consume_char();
+    }
+
+    fn parse_while(&mut self) {
+        self.consume_exact_char('w');
+        println!("(while");
+        self.parse_condition();
+        self.parse_block();
+        self.consume_exact_char('e');
+        println!(")");
+    }
+
+    fn parse_loop(&mut self) {
+        self.consume_exact_char('p');
+        println!("(loop");
+        self.parse_block();
+        self.consume_exact_char('e');
+        println!(")");
+    }
+
+    fn parse_repeat(&mut self) {
+        self.consume_exact_char('r');
+        println!("(repeat");
+        self.parse_block();
+        self.consume_exact_char('u');
+        self.parse_condition();
+        println!(")");
     }
 }
 
